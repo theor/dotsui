@@ -1,3 +1,4 @@
+using System;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Rendering;
@@ -9,56 +10,29 @@ namespace DefaultNamespace
 {
     class UiItemProxy : MonoBehaviour, IConvertGameObjectToEntity
     {
-        public Bounds Bounds;
-        private Mesh mesh;
-        public Material material;
+        public Vector2 Position;
+        public Vector2 Size = Vector2.one;
+        private Entity _entity;
+
         public void Convert(Entity entity, EntityManager dstManager, GameObjectConversionSystem conversionSystem)
         {
-            dstManager.AddComponentData(entity, new NonUniformScale(){ Value = new float3(Bounds.size.x, Bounds.size.y, 0)});
-            dstManager.AddComponent(entity, typeof(CompositeScale));
-            dstManager.AddComponentData(entity, new UiRenderBounds{ Value = Bounds.ToAABB() });
-            mesh = new Mesh();
-            mesh.vertices = new Vector3[4]
-            {
-                new Vector3(0, 0, 0), 
-                new Vector3(1, 0, 0),
-                new Vector3(0, 1, 0),
-                new Vector3(1, 1, 0)
-            };
-            var tris = new int[6]
-            {
-                // lower left triangle
-                0, 2, 1,
-                // upper right triangle
-                2, 3, 1
-            };
-            mesh.triangles = tris;
+            _entity = entity;
+            dstManager.AddComponentData(entity, new UiRenderBounds{ Value = MakeData() });
+        }
 
-            var normals = new Vector3[4]
-            {
-                -Vector3.forward,
-                -Vector3.forward,
-                -Vector3.forward,
-                -Vector3.forward
-            };
-            mesh.normals = normals;
+        private AABB MakeData()
+        {
+            return new AABB{Center = (Vector3)(Position+Size/2), Extents = (Vector3)Size/2};
+        }
 
-            var uv = new Vector2[4]
-            {
-                new Vector2(0, 0),
-                new Vector2(1, 0),
-                new Vector2(0, 1),
-                new Vector2(1, 1)
-            };
-            mesh.uv = uv;
-            mesh.RecalculateBounds();
-            dstManager.AddSharedComponentData(entity,new RenderMesh
-            {
-                material = material,
-                mesh = mesh,
-                receiveShadows = false,
-                castShadows = ShadowCastingMode.Off,
-            });
+        private void Update()
+        {
+            var bounds = World.Active.EntityManager.GetComponentData<UiRenderBounds>(_entity);
+            var newValue = MakeData();
+            if (bounds.Value.Center.Equals(newValue.Center) && bounds.Value.Extents.Equals(newValue.Extents))
+                return;
+            bounds.Value = newValue;
+            World.Active.EntityManager.SetComponentData(_entity, bounds);
         }
     }
 }

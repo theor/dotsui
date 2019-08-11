@@ -5,6 +5,7 @@ using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Yoga;
 
+[DisableAutoCreation]
 [UpdateBefore(typeof(UiRenderer))]
 class LayoutSystem : ComponentSystem
 {
