@@ -75,7 +75,7 @@ public class Renderer : ComponentSystem
     {
         if (!m_Camera)
             m_Camera = Camera.main;
-        Debug.Log($"pix {m_Camera.pixelRect}");
+//        Debug.Log($"pix {m_Camera.pixelRect}");
         var v2 = m_Camera.ScreenToWorldPoint(Vector3.forward * 10);
         var m = Matrix4x4.Translate(v2) * Matrix4x4.Rotate(m_Camera.transform.localRotation);
         // height -> 2
@@ -86,8 +86,16 @@ public class Renderer : ComponentSystem
         
         Entities.With(m_RenderQuery).ForEach((Entity e, ref UiRenderBounds bounds) =>
         {
+            var translation = bounds.Value.Center - bounds.Value.Extents;
+            translation.y = m_Camera.pixelHeight - translation.y - bounds.Value.Size.y; // put y=0 at the top
+            translation = new float3(
+                bounds.Value.Center.x - bounds.Value.Extents.x,
+                m_Camera.pixelHeight - bounds.Value.Center.y - bounds.Value.Extents.y,
+                
+                0
+            );
             var matrix4X4 = m *
-                            Matrix4x4.Translate((bounds.Value.Center - bounds.Value.Extents) * px) *
+                            Matrix4x4.Translate(translation * px) *
                             Matrix4x4.Scale(bounds.Value.Size) *
                             pixelScale;
             Graphics.DrawMesh(mesh, matrix4X4, Material.GetDefaultMaterial(), 0);
