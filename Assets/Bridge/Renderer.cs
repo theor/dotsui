@@ -8,7 +8,7 @@ using UnityEngine;
 
 public struct UiRenderBounds : IComponentData
 {
-    public AABB Value;
+    public AABB Value; // in pixels, screen-space, 0,0 at the bottom left
 }
 
 //public struct UiRenderData : IComponentData
@@ -86,7 +86,11 @@ public class Renderer : ComponentSystem
         
         Entities.With(m_RenderQuery).ForEach((Entity e, ref UiRenderBounds bounds) =>
         {
-            Graphics.DrawMesh(mesh, m * Matrix4x4.Translate(bounds.Value.Center - bounds.Value.Extents) * Matrix4x4.Scale(bounds.Value.Size) * pixelScale, Material.GetDefaultMaterial(), 0);
+            var matrix4X4 = m *
+                            Matrix4x4.Translate((bounds.Value.Center - bounds.Value.Extents) * px) *
+                            Matrix4x4.Scale(bounds.Value.Size) *
+                            pixelScale;
+            Graphics.DrawMesh(mesh, matrix4X4, Material.GetDefaultMaterial(), 0);
         });
     }
 }
