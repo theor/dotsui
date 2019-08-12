@@ -228,7 +228,8 @@ namespace Bridge
                     break;
 
                 MatchResultInfo matchInfo = MatchesSelector(current, complexSelector.selectors[nextIndex]);
-                processResult(current, matchInfo);
+                if(processResult != null)
+                    processResult(current, matchInfo);
 
                 if (!matchInfo.success)
                 {

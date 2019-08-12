@@ -48,37 +48,79 @@ public class UiRenderer : ComponentSystem
         _colorPropertyId = Shader.PropertyToID("_Color");
         _gen = new TextGenerator();
     }
-    
-    public TextGenerationSettings GetGenerationSettings(Vector2 extents)
+
+    protected override void OnUpdate()
     {
-        var settings = new TextGenerationSettings();
-        var data = FontData.defaultFontData;
-        data.font = Font.GetDefault();
+        if (!m_Camera)
+            m_Camera = Camera.main;
+//        Debug.Log($"pix {m_Camera.pixelRect}");
+        var v2 = m_Camera.ScreenToWorldPoint(Vector3.forward * 10);
+        var m = Matrix4x4.Translate(v2) * Matrix4x4.Rotate(m_Camera.transform.localRotation);
+        // height -> 2
+        // 1 px = 2 / height
+        var px = 2.0f / m_Camera.pixelHeight;
+        var pixelScale = Matrix4x4.Scale(new Vector3(px, px, px));
 
-        settings.generationExtents = extents;
-//        if (data.font != null && data.font.dynamic)
-//        {
-//            settings.fontSize = data.fontSize;
-//            settings.resizeTextMinSize = data.minSize;
-//            settings.resizeTextMaxSize = data.maxSize;
-//        }
+        var backgrounds = GetComponentDataFromEntity<Background>();
+        
+        var block = new MaterialPropertyBlock();
+        Entities.With(m_RenderQuery).ForEach((Entity e, ref UiRenderBounds bounds) =>
+        {
+            var translation = bounds.Value.Center - bounds.Value.Extents;
+            translation.y = m_Camera.pixelHeight - translation.y - bounds.Value.Size.y; // put y=0 at the top
+            translation = new float3(
+                bounds.Value.Center.x - bounds.Value.Extents.x,
+                m_Camera.pixelHeight - bounds.Value.Center.y - bounds.Value.Extents.y,
+                
+                0
+            );
+            var matrix4X4 = m *
+                            Matrix4x4.Translate(translation * px) *
+                            Matrix4x4.Scale(bounds.Value.Size) *
+                            pixelScale;
+            
+            block.SetColor(_colorPropertyId, backgrounds.Exists(e) ? (Color)(Vector4)backgrounds[e].backgroundColor : Color.white);
+            Graphics.DrawMesh(mesh, matrix4X4, material, 0, null, 0, block);
+        });
+        
+//        DrawText(block, pixelScale);
+    }
 
-        // Other settings
-        settings.textAnchor = data.alignment;
-        settings.alignByGeometry = data.alignByGeometry;
-        settings.scaleFactor = 1;
-        settings.color = Color.white;
-        settings.font = data.font;
-        settings.pivot = Vector2.zero;
-        settings.richText = data.richText;
-        settings.lineSpacing = data.lineSpacing;
-        settings.fontStyle = data.fontStyle;
-        settings.resizeTextForBestFit = data.bestFit;
-        settings.updateBounds = false;
-        settings.horizontalOverflow = data.horizontalOverflow;
-        settings.verticalOverflow = data.verticalOverflow;
+    private void DrawText(MaterialPropertyBlock block, Matrix4x4 pixelScale)
+    {
+        var tm = new Mesh();
+        tm.vertices = _gen.verts.Select(v => v.position).ToArray();
+        tm.colors32 = _gen.verts.Select(v => v.color).ToArray();
+        tm.uv = _gen.verts.Select(v => v.uv0).ToArray();
 
-        return settings;
+        int characterCount = _gen.vertexCount / 4;
+        int[] tempIndices = new int[characterCount * 6];
+        for (int i = 0; i < characterCount; ++i)
+        {
+            int vertIndexStart = i * 4;
+            int trianglesIndexStart = i * 6;
+            tempIndices[trianglesIndexStart++] = vertIndexStart;
+            tempIndices[trianglesIndexStart++] = vertIndexStart + 1;
+            tempIndices[trianglesIndexStart++] = vertIndexStart + 2;
+            tempIndices[trianglesIndexStart++] = vertIndexStart;
+            tempIndices[trianglesIndexStart++] = vertIndexStart + 2;
+            tempIndices[trianglesIndexStart] = vertIndexStart + 3;
+        }
+
+        tm.triangles = tempIndices;
+        tm.RecalculateBounds();
+
+        block.SetColor(_colorPropertyId, Color.white);
+
+        _gen.Invalidate();
+        if (!_gen.PopulateWithErrors("Test Label", GetGenerationSettings(Vector2.one * 500), null))
+            Debug.LogError("Error during text gen");
+//        Debug.Log("populate:" + populateWithErrors + _gen.vertexCount);
+//        Debug.Log(String.Join(",", _gen.verts.Select(c => c.position.ToString())));
+        Font.GetDefault()
+            .RequestCharactersInTexture(
+                " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~");
+        Graphics.DrawMesh(tm, Matrix4x4.identity * pixelScale, Font.GetDefault().material, 0, null, 0, block);
     }
 
     public static Mesh CreateQuad()
@@ -121,78 +163,36 @@ public class UiRenderer : ComponentSystem
         return mesh;
     }
 
-    protected override void OnUpdate()
+    public TextGenerationSettings GetGenerationSettings(Vector2 extents)
     {
-        if (!m_Camera)
-            m_Camera = Camera.main;
-//        Debug.Log($"pix {m_Camera.pixelRect}");
-        var v2 = m_Camera.ScreenToWorldPoint(Vector3.forward * 10);
-        var m = Matrix4x4.Translate(v2) * Matrix4x4.Rotate(m_Camera.transform.localRotation);
-        // height -> 2
-        // 1 px = 2 / height
-        var px = 2.0f / m_Camera.pixelHeight;
-        var pixelScale = Matrix4x4.Scale(new Vector3(px, px, px));
+        var settings = new TextGenerationSettings();
+        var data = FontData.defaultFontData;
+        data.font = Font.GetDefault();
 
-        var backgrounds = GetComponentDataFromEntity<Background>();
-        
-        var block = new MaterialPropertyBlock();
-        Entities.With(m_RenderQuery).ForEach((Entity e, ref UiRenderBounds bounds) =>
-        {
-            var translation = bounds.Value.Center - bounds.Value.Extents;
-            translation.y = m_Camera.pixelHeight - translation.y - bounds.Value.Size.y; // put y=0 at the top
-            translation = new float3(
-                bounds.Value.Center.x - bounds.Value.Extents.x,
-                m_Camera.pixelHeight - bounds.Value.Center.y - bounds.Value.Extents.y,
-                
-                0
-            );
-            var matrix4X4 = m *
-                            Matrix4x4.Translate(translation * px) *
-                            Matrix4x4.Scale(bounds.Value.Size) *
-                            pixelScale;
-            
-            block.SetColor(_colorPropertyId, backgrounds.Exists(e) ? (Color)(Vector4)backgrounds[e].backgroundColor : Color.white);
-            Graphics.DrawMesh(mesh, matrix4X4, material, 0, null, 0, block);
-        });
-        
-        DrawText(block, pixelScale);
-    }
+        settings.generationExtents = extents;
+//        if (data.font != null && data.font.dynamic)
+//        {
+//            settings.fontSize = data.fontSize;
+//            settings.resizeTextMinSize = data.minSize;
+//            settings.resizeTextMaxSize = data.maxSize;
+//        }
 
-    private void DrawText(MaterialPropertyBlock block, Matrix4x4 pixelScale)
-    {
-        var tm = new Mesh();
-        tm.vertices = _gen.verts.Select(v => v.position).ToArray();
-        tm.colors32 = _gen.verts.Select(v => v.color).ToArray();
-        tm.uv = _gen.verts.Select(v => v.uv0).ToArray();
+        // Other settings
+        settings.textAnchor = data.alignment;
+        settings.alignByGeometry = data.alignByGeometry;
+        settings.scaleFactor = 1;
+        settings.color = Color.white;
+        settings.font = data.font;
+        settings.pivot = Vector2.zero;
+        settings.richText = data.richText;
+        settings.lineSpacing = data.lineSpacing;
+        settings.fontStyle = data.fontStyle;
+        settings.resizeTextForBestFit = data.bestFit;
+        settings.updateBounds = false;
+        settings.horizontalOverflow = data.horizontalOverflow;
+        settings.verticalOverflow = data.verticalOverflow;
 
-        int characterCount = _gen.vertexCount / 4;
-        int[] tempIndices = new int[characterCount * 6];
-        for (int i = 0; i < characterCount; ++i)
-        {
-            int vertIndexStart = i * 4;
-            int trianglesIndexStart = i * 6;
-            tempIndices[trianglesIndexStart++] = vertIndexStart;
-            tempIndices[trianglesIndexStart++] = vertIndexStart + 1;
-            tempIndices[trianglesIndexStart++] = vertIndexStart + 2;
-            tempIndices[trianglesIndexStart++] = vertIndexStart;
-            tempIndices[trianglesIndexStart++] = vertIndexStart + 2;
-            tempIndices[trianglesIndexStart] = vertIndexStart + 3;
-        }
-
-        tm.triangles = tempIndices;
-        tm.RecalculateBounds();
-
-        block.SetColor(_colorPropertyId, Color.white);
-
-        _gen.Invalidate();
-        if (!_gen.PopulateWithErrors("Test Label", GetGenerationSettings(Vector2.one * 500), null))
-            Debug.LogError("Error during text gen");
-//        Debug.Log("populate:" + populateWithErrors + _gen.vertexCount);
-//        Debug.Log(String.Join(",", _gen.verts.Select(c => c.position.ToString())));
-        Font.GetDefault()
-            .RequestCharactersInTexture(
-                " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~");
-        Graphics.DrawMesh(tm, Matrix4x4.identity * pixelScale, Font.GetDefault().material, 0, null, 0, block);
+        return settings;
     }
 }
 
