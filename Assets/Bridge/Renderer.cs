@@ -1,27 +1,41 @@
-﻿using Unity.Collections;
+﻿using System.Linq;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Jobs;
 using Unity.Mathematics;
 using Unity.Rendering;
 using Unity.Transforms;
+using UnityEditor;
 using UnityEngine;
+using UnityEngine.UI;
 
 public struct UiRenderBounds : IComponentData
 {
     public AABB Value; // in pixels, screen-space, 0,0 at the bottom left
 }
 
-//public struct UiRenderData : IComponentData
-//{
-//    
-//}
+struct Background : IComponentData
+{
+    public float4 backgroundColor;
+}
 
 [AlwaysUpdateSystem]
-public class Renderer : ComponentSystem
+public class UiRenderer : ComponentSystem
 {
+    [MenuItem("DOTSUI/Dump GOID")]
+    static void DumpGOID()
+    {
+        var goid = GlobalObjectId.GetGlobalObjectIdSlow(Selection.activeObject);
+        Debug.Log(goid);
+    }
+
+    private const string UIMaterialGOID = "GlobalObjectId_V1-3-7ce14f6751d9ac841a9145542438a2d9-2100000-0";
     private Camera m_Camera;
     private Mesh mesh;
     private EntityQuery m_RenderQuery;
+    private int _colorPropertyId;
+    private Material material;
+    private TextGenerator _gen;
 
     protected override void OnCreate()
     {
@@ -29,6 +43,42 @@ public class Renderer : ComponentSystem
         m_RenderQuery = GetEntityQuery(
             ComponentType.ReadOnly<UiRenderBounds>()
         );
+        GlobalObjectId.TryParse(UIMaterialGOID, out var goid);
+        material = (Material)GlobalObjectId.GlobalObjectIdentifierToObjectSlow(goid);
+        _colorPropertyId = Shader.PropertyToID("_Color");
+        _gen = new TextGenerator();
+    }
+    
+    public TextGenerationSettings GetGenerationSettings(Vector2 extents)
+    {
+        var settings = new TextGenerationSettings();
+        var data = FontData.defaultFontData;
+        data.font = Font.GetDefault();
+
+        settings.generationExtents = extents;
+//        if (data.font != null && data.font.dynamic)
+//        {
+//            settings.fontSize = data.fontSize;
+//            settings.resizeTextMinSize = data.minSize;
+//            settings.resizeTextMaxSize = data.maxSize;
+//        }
+
+        // Other settings
+        settings.textAnchor = data.alignment;
+        settings.alignByGeometry = data.alignByGeometry;
+        settings.scaleFactor = 1;
+        settings.color = Color.white;
+        settings.font = data.font;
+        settings.pivot = Vector2.zero;
+        settings.richText = data.richText;
+        settings.lineSpacing = data.lineSpacing;
+        settings.fontStyle = data.fontStyle;
+        settings.resizeTextForBestFit = data.bestFit;
+        settings.updateBounds = false;
+        settings.horizontalOverflow = data.horizontalOverflow;
+        settings.verticalOverflow = data.verticalOverflow;
+
+        return settings;
     }
 
     public static Mesh CreateQuad()
@@ -82,8 +132,10 @@ public class Renderer : ComponentSystem
         // 1 px = 2 / height
         var px = 2.0f / m_Camera.pixelHeight;
         var pixelScale = Matrix4x4.Scale(new Vector3(px, px, px));
+
+        var backgrounds = GetComponentDataFromEntity<Background>();
         
-        
+        var block = new MaterialPropertyBlock();
         Entities.With(m_RenderQuery).ForEach((Entity e, ref UiRenderBounds bounds) =>
         {
             var translation = bounds.Value.Center - bounds.Value.Extents;
@@ -98,71 +150,52 @@ public class Renderer : ComponentSystem
                             Matrix4x4.Translate(translation * px) *
                             Matrix4x4.Scale(bounds.Value.Size) *
                             pixelScale;
-            Graphics.DrawMesh(mesh, matrix4X4, Material.GetDefaultMaterial(), 0);
+            
+            block.SetColor(_colorPropertyId, backgrounds.Exists(e) ? (Color)(Vector4)backgrounds[e].backgroundColor : Color.white);
+            Graphics.DrawMesh(mesh, matrix4X4, material, 0, null, 0, block);
         });
+        
+        DrawText(block, pixelScale);
+    }
+
+    private void DrawText(MaterialPropertyBlock block, Matrix4x4 pixelScale)
+    {
+        var tm = new Mesh();
+        tm.vertices = _gen.verts.Select(v => v.position).ToArray();
+        tm.colors32 = _gen.verts.Select(v => v.color).ToArray();
+        tm.uv = _gen.verts.Select(v => v.uv0).ToArray();
+
+        int characterCount = _gen.vertexCount / 4;
+        int[] tempIndices = new int[characterCount * 6];
+        for (int i = 0; i < characterCount; ++i)
+        {
+            int vertIndexStart = i * 4;
+            int trianglesIndexStart = i * 6;
+            tempIndices[trianglesIndexStart++] = vertIndexStart;
+            tempIndices[trianglesIndexStart++] = vertIndexStart + 1;
+            tempIndices[trianglesIndexStart++] = vertIndexStart + 2;
+            tempIndices[trianglesIndexStart++] = vertIndexStart;
+            tempIndices[trianglesIndexStart++] = vertIndexStart + 2;
+            tempIndices[trianglesIndexStart] = vertIndexStart + 3;
+        }
+
+        tm.triangles = tempIndices;
+        tm.RecalculateBounds();
+
+        block.SetColor(_colorPropertyId, Color.white);
+
+        _gen.Invalidate();
+        if (!_gen.PopulateWithErrors("Test Label", GetGenerationSettings(Vector2.one * 500), null))
+            Debug.LogError("Error during text gen");
+//        Debug.Log("populate:" + populateWithErrors + _gen.vertexCount);
+//        Debug.Log(String.Join(",", _gen.verts.Select(c => c.position.ToString())));
+        Font.GetDefault()
+            .RequestCharactersInTexture(
+                " !\"#$%&\'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~");
+        Graphics.DrawMesh(tm, Matrix4x4.identity * pixelScale, Font.GetDefault().material, 0, null, 0, block);
     }
 }
 
-[AlwaysUpdateSystem]
-[DisableAutoCreation]
-public class UiRenderer : JobComponentSystem
-{
-    private EntityQuery m_ItemsQuery;
-//    private EntityQuery m_AddMissingRenderBounds;
-//    private EntityQuery m_ApplyLayoutQuery;
-
-    private Camera m_Camera;
-
-//
-    protected override void OnCreate()
-    {
-        m_Camera = Camera.main;
-        m_ItemsQuery = GetEntityQuery(
-            ComponentType.ReadOnly<UiRenderBounds>()
-        );
-//        m_AddMissingRenderBounds = GetEntityQuery(
-//            ComponentType.ReadOnly<UiRenderBounds>(),
-//            ComponentType.Exclude<RenderBounds>()
-//        );
-//        m_ApplyLayoutQuery = GetEntityQuery(
-//            ComponentType.ReadOnly<UiRenderBounds>(),
-//            ComponentType.ReadWrite<LocalToWorld>()
-//        );
-    }
-
-    protected override JobHandle OnUpdate(JobHandle inputDeps)
-    {
-//        EntityManager.AddComponent<RenderBounds>(m_AddMissingRenderBounds);
-        inputDeps = new UpdateFromUiBoundsJob().Schedule(m_ItemsQuery, inputDeps);
-        if (!m_Camera)
-            m_Camera = Camera.main;
-        var v2 = m_Camera.ScreenToWorldPoint(Vector3.forward * 10);
-        var m = Matrix4x4.Translate(v2) * Matrix4x4.Rotate(m_Camera.transform.localRotation);
-        inputDeps = new MapToCameraView {m = m}.Schedule(m_ItemsQuery, inputDeps);
-        return inputDeps;
-    }
-
-    public struct UpdateFromUiBoundsJob : IJobForEach<RenderBounds, UiRenderBounds>
-    {
-        public void Execute(ref RenderBounds renderBounds, [ReadOnly] ref UiRenderBounds uiRenderBounds)
-        {
-//                renderBounds.Value = uiRenderBounds.Value;
-            var i = 10;
-            renderBounds.Value.Extents = new float3(i, i, i);
-        }
-    }
-
-    public struct MapToCameraView : IJobForEach<LocalToWorld, UiRenderBounds>
-    {
-        public Matrix4x4 m;
-
-        public void Execute(ref LocalToWorld ltw, [ReadOnly] ref UiRenderBounds uiRenderBounds)
-        {
-            ltw.Value = m * Matrix4x4.Translate(uiRenderBounds.Value.Center - uiRenderBounds.Value.Extents) *
-                        Matrix4x4.Scale(uiRenderBounds.Value.Size * 0.1f);
-        }
-    }
-}
 
 //public class Renderer : ComponentSystem
 //{

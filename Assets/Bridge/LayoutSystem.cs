@@ -5,7 +5,6 @@ using Unity.Mathematics;
 using UnityEngine;
 using UnityEngine.Yoga;
 
-[DisableAutoCreation]
 [UpdateBefore(typeof(UiRenderer))]
 class LayoutSystem : ComponentSystem
 {
@@ -62,11 +61,11 @@ class LayoutSystem : ComponentSystem
 ////            Width = YogaValue.Percent(100),
 ////            Height = YogaValue.Percent(100),
 //        });
-        var r = Screen.currentResolution;
+        var r = Screen.safeArea;
         _root.Width = YogaValue.Point(r.width);
         _root.Height = YogaValue.Point(r.height);
         _root.CalculateLayout(Single.NaN, Single.NaN);
-        Dump(_root, 0);
+//        Dump(_root, 0);
         Entities.ForEach((Entity e, ref UiRenderBounds uiRenderBounds) =>
         {
             var yn = nodes[e];
@@ -77,7 +76,7 @@ class LayoutSystem : ComponentSystem
 
         void Dump(YogaNode yn, int indent)
         {
-            Debug.Log(string.Format("{0}{1}: {2}", new string(' ', 2*indent), yn.Data, yn.GetLayoutRect()));
+            Debug.Log($"{new string(' ', 2 * indent)}{yn.Data}: {yn.GetLayoutRect()}");
             foreach (YogaNode child in yn)
             {
                 Dump(child, indent + 1);
